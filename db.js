@@ -1,6 +1,42 @@
 'use strict';
 
-const conditionParse = object =>  {}; //TODO
+const conditionParse = object =>  {
+    let clause = '';
+    const args = [];
+    let i = 1;
+    for (const [key, val] of Object.entries(object)) {
+        let value;
+        let condition;
+
+        if (val.startsWith('=')) {
+            condition = `${key} = $${i}`;
+            value = val.substring(1);
+        } else if (val.startsWith('>=')) {
+            condition = `${key} >= $${i}`;
+            value = val.substring(2);
+        } else if (val.startsWith('<=')) {
+            condition = `${key} <= $${i}`;
+            value = val.substring(2);
+        } else if (val.startsWith('<>') || val.startsWith('!=')) {
+            condition = `${key} <> $${i}`;
+            value = val.substring(2);
+        } else if (val.startsWith('>')) {
+            condition = `${key} > $${i}`;
+            value = val.substring(1);
+        } else if (val.startsWith('<')) {
+            condition = `${key} < $${i}`;
+            value = val.substring(1);
+        } else if (val.includes('*') || val.includes('?')) {
+            value = val.replace(/\*/g, '%').replace(/\?/g, '_');
+            condition = `${key} LIKE $${i}`;
+        }
+
+        i++;
+        args.push(value);
+        clause = clause ? `${clause} AND ${condition}` : condition;
+    }
+    return { clause, args };
+}; //TODO
 
 class Cursor {
     constructor(db) {
@@ -55,6 +91,10 @@ class Cursor {
         return this;
     } //TODO
 
+    and(cond) {} //TODO
+
+    or(cond) {} //TODO
+
     inOrder(object) {
         for (const [key, val] of Object.entries(object)) {
             const mode = val ? val : 'ASC';
@@ -70,24 +110,32 @@ class Cursor {
 
     selectBuilder() {
         const { table, fields, condition, orderBy } = this;
-        const columns = fields.join(',');
-        const ordering = orderBy.join(',');
+        const columns = fields.join(', ');
+        const ordering = orderBy.join(', ');
         this.sql = `SELECT ${columns} FROM ${table}`;
         if (condition) this.sql += ` WHERE ${condition}`;
         if (orderBy) this.sql += ` ORDER BY ${ordering}`;
     } //TODO
 
     insertBuilder() {
-
+        const { table, fields } = this;
+        const values = [];
+        for (let i = 1; i <= fields.length; i++) {
+            values.push(`$${i}`);
+        }
+        const joinedValues = values.join(', ');
+        const joinedFields = fields.join(', ')
+        this.sql = `INSERT INTO ${table}(${joinedFields}) VALUES (${joinedValues})`;
     } //TODO
 
     updateBuilder() {
         const { table, fields, condition } = this;
         const updatedColumns = [];
         for (let i = 0; i < fields.length; i++) {
-            updatedColumns.push(`${fields[i]} = $${i}`);
+            updatedColumns.push(`${fields[i]} = $${i + 1}`);
         }
-        this.sql = `UPDATE ${table} SET ${updatedColumns.join(',')} WHERE ${condition}`; //OPTIMIZE
+        const updatedColsJoined = updatedColumns.join(',');
+        this.sql = `UPDATE ${table} SET ${updatedColsJoined} WHERE ${condition}`;
     } //TODO
 
     deleteBuilder() {
