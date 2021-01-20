@@ -41,14 +41,20 @@ const conditionParse = (object, length) =>  {
 class Cursor {
     constructor(db) {
         this.database = db;
+
         this.operation = undefined;
-        this.table = undefined;
         this.sql = undefined;
+
+        this.table = undefined;
         this.condition = undefined;
-        this.orderBy = [];
+        this.rowLimit = undefined;
+        this.offset = undefined;
         this.fields = [];
+        this.orderBy = [];
         this.args = [];
-        this.options = {};
+
+        this.newTable = undefined;
+        this.fieldsOptions = {};
     } //DONE
 
     select(fields) {
@@ -83,6 +89,38 @@ class Cursor {
 
     delete() {
         this.operation = this.deleteBuilder;
+        return this;
+    } //DONE
+
+    createTable(name) {
+        this.operation = this.createTableBuilder;
+        this.newTable = name;
+        return this;
+    } //DONE
+
+    withField(object) {
+        for (const [key, obj] of Object.entries(object)) {
+            const options = {
+                primaryKey: false,
+                type: 'VARCHAR(50)',
+                unique: true,
+                notNull: true,
+            };
+
+            for (const option of Object.keys(options)) {
+                if (obj.hasOwnProperty(option)) {
+                    options[option] = obj[option];
+                }
+            }
+
+            this.fieldsOptions[key] = options;
+        }
+        return this;
+    } //DONE
+
+    limit(count, offset) {
+        this.rowLimit = count;
+        this.offset = offset;
         return this;
     } //DONE
 
@@ -121,12 +159,14 @@ class Cursor {
     } //DONE
 
     selectBuilder() {
-        const { table, fields, condition, orderBy } = this;
+        const { table, fields, condition, orderBy, rowLimit, offset } = this;
         const columns = fields.join(', ');
         const ordering = orderBy.join(', ');
         this.sql = `SELECT ${columns} FROM ${table}`;
-        if (condition) this.sql += ` WHERE ${condition}`;
-        if (ordering) this.sql += ` ORDER BY ${ordering}`;
+        this.sql += condition ? ` WHERE ${condition}`: '';
+        this.sql += ordering ? ` ORDER BY ${ordering}` : '';
+        this.sql += rowLimit ? ` LIMIT ${rowLimit}` : '';
+        this.sql += offset ? ` OFFSET ${offset}` : '';
     } //DONE
 
     insertBuilder() {
@@ -155,6 +195,23 @@ class Cursor {
         this.sql = `DELETE FROM ${table} WHERE ${condition}`;
     } //DONE
 
+    createTableBuilder() {
+        const { newTable, fieldsOptions } = this;
+        const fields = [];
+
+        for (const key of Object.keys(fieldsOptions)) {
+            const options = fieldsOptions[key];
+            let field = `${key} ${options.type}`;
+            field += options.primaryKey ? ' PRIMARY KEY' : '';
+            field += options.unique ? ' UNIQUE' : '';
+            field += options.notNull ? ' NOT NULL' : '';
+            fields.push(field);
+        }
+
+        const strFields = fields.join(',\n ');
+        this.sql = `CREATE TABLE IF NOT EXISTS ${newTable}(\n ${strFields} \n);`;
+    } //DONE
+
     async exec(callback) {
         this.operation();
         const { sql, args } = this;
@@ -171,7 +228,7 @@ class Cursor {
                 throw new Error('Missing callback!');
             }
         });
-    } //TODO
+    } //DONE
 
 }
 
@@ -196,7 +253,7 @@ class Database {
 
             this.pool.query(sql, values, (err, res) => {
                 console.group('Created sql request to db:');
-                console.log(`SQL: ${sql}`);
+                console.log(`SQL: \n${sql}`);
                 console.groupEnd();
 
                 callback ? callback(err, res) : undefined;
@@ -214,3 +271,4 @@ class Database {
 }
 
 module.exports = Database;
+
