@@ -1,13 +1,16 @@
 'use strict';
 
-const conditionParse = object =>  {
-    let clause = '';
-    const args = [];
-    let i = 1;
-    for (const [key, val] of Object.entries(object)) {
-        let value;
-        let condition;
+const { Pool } = require('pg');
 
+const conditionParse = (object, length) =>  {
+    let value;
+    let condition;
+    let i = length ? length : 1;
+
+    if (Object.getOwnPropertyNames(object).length !== 1) {
+        throw new Error('Must be only 1 condition!')
+    } else {
+        const [key, val] = Object.entries(object)[0];
         if (val.startsWith('=')) {
             condition = `${key} = $${i}`;
             value = val.substring(1);
@@ -30,13 +33,10 @@ const conditionParse = object =>  {
             value = val.replace(/\*/g, '%').replace(/\?/g, '_');
             condition = `${key} LIKE $${i}`;
         }
-
-        i++;
-        args.push(value);
-        clause = clause ? `${clause} AND ${condition}` : condition;
     }
-    return { clause, args };
-}; //TODO
+
+    return { condition, value };
+}; //DONE
 
 class Cursor {
     constructor(db) {
@@ -49,7 +49,7 @@ class Cursor {
         this.fields = [];
         this.args = [];
         this.options = {};
-    } //TODO
+    } //DONE
 
     select(fields) {
         this.operation = this.selectBuilder;
@@ -87,13 +87,25 @@ class Cursor {
     } //DONE
 
     where(cond) {
-        this.condition = conditionParse(cond);
+        const { condition, value } = conditionParse(cond, this.args.length + 1);
+        this.condition = condition;
+        this.args.push(value);
         return this;
-    } //TODO
+    } //DONE
 
-    and(cond) {} //TODO
+    and(cond) {
+        const { condition, value } = conditionParse(cond, this.args.length + 1);
+        this.condition += ` AND ${condition}`;
+        this.args.push(value);
+        return this;
+    } //DONE
 
-    or(cond) {} //TODO
+    or(cond) {
+        const { condition, value } = conditionParse(cond, this.args.length + 1);
+        this.condition += ` OR ${condition}`;
+        this.args.push(value);
+        return this;
+    } //DONE
 
     inOrder(object) {
         for (const [key, val] of Object.entries(object)) {
@@ -114,8 +126,8 @@ class Cursor {
         const ordering = orderBy.join(', ');
         this.sql = `SELECT ${columns} FROM ${table}`;
         if (condition) this.sql += ` WHERE ${condition}`;
-        if (orderBy) this.sql += ` ORDER BY ${ordering}`;
-    } //TODO
+        if (ordering) this.sql += ` ORDER BY ${ordering}`;
+    } //DONE
 
     insertBuilder() {
         const { table, fields } = this;
@@ -126,7 +138,7 @@ class Cursor {
         const joinedValues = values.join(', ');
         const joinedFields = fields.join(', ')
         this.sql = `INSERT INTO ${table}(${joinedFields}) VALUES (${joinedValues})`;
-    } //TODO
+    } //DONE
 
     updateBuilder() {
         const { table, fields, condition } = this;
@@ -136,16 +148,29 @@ class Cursor {
         }
         const updatedColsJoined = updatedColumns.join(',');
         this.sql = `UPDATE ${table} SET ${updatedColsJoined} WHERE ${condition}`;
-    } //TODO
+    } //DONE
 
     deleteBuilder() {
         const { table, condition } = this;
         this.sql = `DELETE FROM ${table} WHERE ${condition}`;
     } //DONE
 
-    exec() {
-        this.operation()
-        console.log(this.sql);
+    async exec(callback) {
+        this.operation();
+        const { sql, args } = this;
+        await this.database.query(sql, args, (err, res) => {
+            if (callback) {
+                if (res === undefined) {
+                    callback(err, undefined);
+                    return;
+                }
+                this.rows = res.rows;
+                const { rows, cols } = this;
+                callback(err, rows);
+            } else {
+                throw new Error('Missing callback!');
+            }
+        });
     } //TODO
 
 }
@@ -155,28 +180,27 @@ class Database {
         this.pool = new Pool(config);
         this.config = config;
         console.log('Created pool.');
+        this.ready = true;
 
         if (initSql) {
             this.pool.query(initSql)
-                .then(() => console.log('Database initialization was successful!'))
-                .then(() => console.log('Database ready to work.'))
                 .catch(err => console.log(`Database initialization failed: ${err}`));
         }
     } //TODO
 
     query(sql, values, callback) {
-        if (typeof(values) === 'function') {
-            callback = values;
-            values = [];
-        }
+            if (typeof (values) === 'function') {
+                callback = values;
+                values = [];
+            }
 
-        this.pool.query(sql, values, (err, res) => {
-            console.group('Created sql request to db:');
-            console.log(`SQL: ${sql}`);
-            console.groupEnd();
+            this.pool.query(sql, values, (err, res) => {
+                console.group('Created sql request to db:');
+                console.log(`SQL: ${sql}`);
+                console.groupEnd();
 
-            callback ? callback(err, res) : undefined;
-        })
+                callback ? callback(err, res) : undefined;
+            })
     } //TODO
 
     sql() {
@@ -184,6 +208,7 @@ class Database {
     } //DONE
 
     close() {
+        console.log('Pool was closed!');
         this.pool.end();
     } //DONE
 }
