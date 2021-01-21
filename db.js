@@ -1,4 +1,5 @@
 'use strict';
+//TODO LIST - multi rows insert, add column, drop column;
 
 const { Pool } = require('pg');
 
@@ -57,9 +58,9 @@ class Cursor {
         this.fieldsOptions = {};
     } //DONE
 
-    select(fields) {
+    select(...fields) {
         this.operation = this.selectBuilder;
-        if (fields === '*') {
+        if (fields[0] === '*' || !fields.length) {
             this.fields.push('*');
         } else {
             for (const field of fields) {
@@ -98,12 +99,25 @@ class Cursor {
         return this;
     } //DONE
 
+    removeTable(...tables) {
+        this.operation = this.removeTableBuilder;
+        this.table = tables;
+        return this;
+    } //DONE
+
+    renameTable(oldTable, newTable) {
+        this.operation = this.renameTableBuilder;
+        this.table = oldTable;
+        this.newTable = newTable;
+        return this;
+    } //DONE
+
     withField(object) {
         for (const [key, obj] of Object.entries(object)) {
             const options = {
                 primaryKey: false,
                 type: 'VARCHAR(50)',
-                unique: true,
+                unique: false,
                 notNull: true,
             };
 
@@ -111,6 +125,10 @@ class Cursor {
                 if (obj.hasOwnProperty(option)) {
                     options[option] = obj[option];
                 }
+            }
+
+            if (obj.hasOwnProperty('default')) {
+                options['default'] = obj['default'];
             }
 
             this.fieldsOptions[key] = options;
@@ -157,6 +175,8 @@ class Cursor {
         this.table = table;
         return this;
     } //DONE
+
+    //SQL BUILDERS
 
     selectBuilder() {
         const { table, fields, condition, orderBy, rowLimit, offset } = this;
@@ -205,6 +225,7 @@ class Cursor {
             field += options.primaryKey ? ' PRIMARY KEY' : '';
             field += options.unique ? ' UNIQUE' : '';
             field += options.notNull ? ' NOT NULL' : '';
+            field += options.hasOwnProperty('default') ? ` DEFAULT ${options.default}` : '';
             fields.push(field);
         }
 
@@ -212,9 +233,20 @@ class Cursor {
         this.sql = `CREATE TABLE IF NOT EXISTS ${newTable}(\n ${strFields} \n);`;
     } //DONE
 
+    removeTableBuilder() {
+        const tables = this.table.join(', ');
+        this.sql = `DROP TABLE IF EXISTS ${tables}`;
+    } //DONE
+
+    renameTableBuilder() {
+        const { table, newTable } = this;
+        this.sql = `ALTER TABLE  IF EXISTS ${table} RENAME TO ${newTable}`;
+    } //DONE
+
     async exec(callback) {
         this.operation();
         const { sql, args } = this;
+        console.log(args);
         await this.database.query(sql, args, (err, res) => {
             if (callback) {
                 if (res === undefined) {
